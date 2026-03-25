@@ -214,3 +214,15 @@ fn main() {
 rand = "0.8"
 ```
 
+使用随机数的方法：
+
+```rust
+use rand::Rng;
+
+fn main() {
+    let mut rng = rand::thread_rng();   # 定义一个随机数
+    let mut rd = rng.gen_range(0..=3);  # 生成一个 [0,3] 内的随机整数
+    rd = rng.gen_range(0..3);           # 生成一个 [0,3) 内的随机整数
+}
+```
+
