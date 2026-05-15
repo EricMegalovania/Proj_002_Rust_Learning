@@ -26,10 +26,10 @@ async fn welcome() -> impl Responder {
         <html>
         <head><title>Welcome</title><style>body { font-family: sans-serif; text-align: center; margin-top: 50px; }</style></head>
         <body>
-            <h1>📚 图书管理系统</h1>
-            <p>欢迎访问 Rust Web 服务器！</p>
-            <p>📖 访问 <code>/books</code> 查看图书列表（GET）</p>
-            <p>➕ 使用 POST 请求 <code>/books</code> 添加新书（JSON 格式）</p>
+            <h1>Book Manage System</h1>
+            <p>Welcome to Rust Web Server !</p>
+            <p>Visit <code>/books</code> to see book list (GET)</p>
+            <p>Use POST request <code>/books</code> to add new book (JSON format)</p>
         </body>
         </html>
     "#;
@@ -67,18 +67,18 @@ async fn main() -> std::io::Result<()> {
     let initial_books = vec![
         Book {
             id: 1,
-            title: "Rust 程序设计".to_string(),
-            author: "张汉东".to_string(),
+            title: "Journey to the West".to_string(),
+            author: "Wu Cheng'en".to_string(),
         },
         Book {
             id: 2,
-            title: "深入理解 Rust".to_string(),
-            author: "Jim Blandy".to_string(),
+            title: "Romance of the Three Kingdoms".to_string(),
+            author: "Luo Guanzhong".to_string(),
         },
     ];
     let book_db = web::Data::new(Mutex::new(initial_books));
 
-    println!("🚀 服务器启动在 http://127.0.0.1:8080");
+    println!("🚀 Run Server at http://127.0.0.1:8080");
 
     HttpServer::new(move || {
         App::new()
