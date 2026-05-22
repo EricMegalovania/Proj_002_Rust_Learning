@@ -48,3 +48,9 @@ Rust 实验二任务列表
 - **任务四**：通过 `.wrap(Logger::default())` 和更详细的日志格式记录每个请求的路径、状态码和耗时（毫秒）。  
 
 所有功能都已集成在同一个服务器中，符合“层层递进”的设计。
+
+
+
+<https://chat.deepseek.com/a/chat/s/2cc06920-011b-4cbb-b1c7-1092ea89613a>
+
+<https://chat.deepseek.com/a/chat/s/c8f168ab-3fd6-4d57-aa86-641375311fb3>
