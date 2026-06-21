@@ -1,26 +1,100 @@
 use sqlx::postgres::PgPool;
 use sqlx::Row;
 
-pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let pool = PgPool::connect("postgres://user_rshw03:123123@127.0.0.1:5432/rust_hw03").await?;
-    println!("已连接 PostgreSQL: rust_hw03");
+struct Product {
+    #[allow(dead_code)]
+    id: i32,
+    name: String,
+    stock: i32,
+    updated_at: chrono::NaiveDateTime,
+}
 
-    sqlx::query("DROP TABLE IF EXISTS products CASCADE")
-        .execute(&pool)
+struct ProductRepo {
+    pool: PgPool,
+}
+
+impl ProductRepo {
+    async fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        let pool =
+            PgPool::connect("postgres://user_rshw03:123123@127.0.0.1:5432/rust_hw03").await?;
+        println!("  已连接 PostgreSQL: rust_hw03");
+        Ok(Self { pool })
+    }
+
+    async fn create_table(&self) -> Result<(), sqlx::Error> {
+        sqlx::query("DROP TABLE IF EXISTS products CASCADE")
+            .execute(&self.pool)
+            .await?;
+
+        sqlx::query(
+            "CREATE TABLE products (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(100) NOT NULL UNIQUE,
+                stock INT NOT NULL DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT NOW()
+            )",
+        )
+        .execute(&self.pool)
+        .await?;
+        println!("  products 表已就绪");
+        Ok(())
+    }
+
+    async fn insert(&self, name: &str, stock: i32) -> Result<bool, sqlx::Error> {
+        let r =
+            sqlx::query("INSERT INTO products (name, stock) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING")
+                .bind(name)
+                .bind(stock)
+                .execute(&self.pool)
+                .await?;
+        Ok(r.rows_affected() > 0)
+    }
+
+    async fn deduct_stock(&self, name: &str, quantity: i32) -> Result<bool, sqlx::Error> {
+        let r = sqlx::query(
+            "UPDATE products SET stock = stock - $1, updated_at = NOW() WHERE name = $2 AND stock >= $1",
+        )
+        .bind(quantity)
+        .bind(name)
+        .execute(&self.pool)
+        .await?;
+        Ok(r.rows_affected() > 0)
+    }
+
+    async fn get_stock(&self, name: &str) -> Result<i32, sqlx::Error> {
+        let row = sqlx::query("SELECT stock FROM products WHERE name = $1")
+            .bind(name)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row.get("stock"))
+    }
+
+    async fn find_low_stock(&self, threshold: i32) -> Result<Vec<Product>, sqlx::Error> {
+        let rows = sqlx::query(
+            "SELECT id, name, stock, updated_at FROM products WHERE stock < $1 ORDER BY stock ASC",
+        )
+        .bind(threshold)
+        .fetch_all(&self.pool)
         .await?;
 
-    sqlx::query(
-        "CREATE TABLE products (
-            id SERIAL PRIMARY KEY,
-            name VARCHAR(100) NOT NULL UNIQUE,
-            stock INT NOT NULL DEFAULT 0,
-            updated_at TIMESTAMP DEFAULT NOW()
-        )",
-    )
-    .execute(&pool)
-    .await?;
-    println!("已创建 products 表");
+        Ok(rows
+            .iter()
+            .map(|r| Product {
+                id: r.get("id"),
+                name: r.get("name"),
+                stock: r.get("stock"),
+                updated_at: r.get("updated_at"),
+            })
+            .collect())
+    }
+}
 
+pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    println!("=== 测试1：连接数据库并建表 ===");
+    let repo = ProductRepo::new().await?;
+    repo.create_table().await?;
+
+    println!("\n=== 测试2：插入 5 件商品 ===");
     let products = [
         ("笔记本", 5),
         ("鼠标", 20),
@@ -28,81 +102,51 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         ("显示器", 3),
         ("耳机", 12),
     ];
-
-    println!("\n插入测试商品:");
     for (name, stock) in &products {
-        match sqlx::query(
-            "INSERT INTO products (name, stock) VALUES ($1, $2)",
-        )
-        .bind(name)
-        .bind(stock)
-        .execute(&pool)
-        .await
-        {
-            Ok(r) => {
-                if r.rows_affected() > 0 {
-                    println!("  插入成功: {} (库存: {})", name, stock);
-                } else {
-                    println!("  已存在跳过: {}", name);
-                }
+        let inserted = repo.insert(name, *stock).await?;
+        println!(
+            "  {} (库存 {}) -> {}",
+            name,
+            stock,
+            if inserted {
+                "插入成功"
+            } else {
+                "已存在跳过"
             }
-            Err(e) => println!("  插入失败 {}: {}", name, e),
-        }
+        );
     }
 
-    println!("\n库存扣减: 购买 3 件「笔记本」");
-    let result = sqlx::query(
-        "UPDATE products SET stock = stock - $1, updated_at = NOW() WHERE name = $2 AND stock >= $1",
-    )
-    .bind(3)
-    .bind("笔记本")
-    .execute(&pool)
-    .await?;
-
-    if result.rows_affected() == 0 {
-        println!("  扣减失败: 库存不足或商品不存在");
+    println!("\n=== 测试3：正常库存扣减 — 购买 3 件「笔记本」 ===");
+    let ok = repo.deduct_stock("笔记本", 3).await?;
+    if ok {
+        let remaining = repo.get_stock("笔记本").await?;
+        println!("  扣减成功: 笔记本 剩余库存 {}", remaining);
     } else {
-        let row = sqlx::query("SELECT name, stock FROM products WHERE name = $1")
-            .bind("笔记本")
-            .fetch_one(&pool)
-            .await?;
-        let name: String = row.get("name");
-        let stock: i32 = row.get("stock");
-        println!("  扣减成功: {} 剩余库存 {}", name, stock);
+        println!("  扣减失败: 库存不足");
     }
 
-    println!("\n库存扣减: 购买 5 件「显示器」(库存不足场景)");
-    let result = sqlx::query(
-        "UPDATE products SET stock = stock - $1, updated_at = NOW() WHERE name = $2 AND stock >= $1",
-    )
-    .bind(5)
-    .bind("显示器")
-    .execute(&pool)
-    .await?;
-
-    if result.rows_affected() == 0 {
-        println!("  扣减失败: 库存不足或商品不存在");
+    println!("\n=== 测试4：库存不足扣减 — 购买 5 件「显示器」(库存仅3) ===");
+    let ok = repo.deduct_stock("显示器", 5).await?;
+    if ok {
+        println!("  扣减成功(意外)");
     } else {
-        println!("  扣减成功");
+        let remaining = repo.get_stock("显示器").await?;
+        println!("  扣减被拒绝: 显示器 库存不足,当前库存为 {}", remaining);
     }
 
-    println!("\n查询库存低于 10 件的商品:");
-    let rows = sqlx::query("SELECT id, name, stock, updated_at FROM products WHERE stock < 10 ORDER BY stock ASC")
-        .fetch_all(&pool)
-        .await?;
-
-    if rows.is_empty() {
+    println!("\n=== 测试5：查询库存低于 10 件的商品 ===");
+    let low = repo.find_low_stock(10).await?;
+    if low.is_empty() {
         println!("  所有商品库存充足");
     } else {
-        for row in &rows {
-            let id: i32 = row.get("id");
-            let name: String = row.get("name");
-            let stock: i32 = row.get("stock");
-            let updated_at: chrono::NaiveDateTime = row.get("updated_at");
-            println!("  id={} {} 库存={} 更新时间={}", id, name, stock, updated_at);
+        for p in &low {
+            println!(
+                "  id={} {} 库存={} 更新时间={}",
+                p.id, p.name, p.stock, p.updated_at
+            );
         }
     }
 
-    pool.close().await;
+    repo.pool.close().await;
     Ok(())
 }
